@@ -1,6 +1,5 @@
 import type { Repository } from '../../domain/repositories/types'
 import type { RateLimitObserver, RateLimitSnapshot, RepositoryAnalysisPort } from '../../application/ports/analysis-ports'
-import { clearToken, getToken } from './github-api'
 
 type ApiResponse = { response: Response; body: any }
 
@@ -53,17 +52,15 @@ export class GitHubRepositoryAnalysisApi implements RepositoryAnalysisPort {
       let attempt = 0
       while (true) {
         await this.waitForBudget(signal, observe)
-        const token = getToken()
-        if (!token) throw new Error('Your GitHub session is missing. Sign in again.')
-        const response = await fetch(`https://api.github.com${path}`, {
-          headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' }, signal,
+        const response = await fetch(`/api/github${path}`, {
+          headers: { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' }, signal,
         })
         const remaining = response.headers.get('x-ratelimit-remaining')
         const reset = response.headers.get('x-ratelimit-reset')
         if (remaining !== null) this.rate.remaining = Number(remaining)
         if (reset !== null) this.rate.resetAt = Number(reset) * 1000
         this.notify(observe)
-        if (response.status === 401) { clearToken(); throw new Error('Your GitHub session expired during analysis. Sign in again.') }
+        if (response.status === 401) throw new Error('Your GitHub session expired or was revoked. Sign in again.')
         if (response.status === 403 || response.status === 429) {
           const limited = this.rate.remaining === 0 || response.status === 429
           if (limited && attempt < 5) { attempt++; this.rate.remaining = 0; this.notify(observe); await this.waitForBudget(signal, observe); continue }
