@@ -1,5 +1,4 @@
 import type { Repository, Viewer } from '../../domain/repositories/types'
-import type { SummaryContextResult } from '../../application/ports/ai-ports'
 const CLIENT_ID = import.meta.env.VITE_GITHUB_CLIENT_ID as string | undefined
 const TOKEN_KEY = 'repo-manager:github-token'
 export const getToken = () => sessionStorage.getItem(TOKEN_KEY)
@@ -76,88 +75,4 @@ export async function fetchRepositories(token: string): Promise<{ repos: Reposit
     rateRemaining: remainingHeader === null ? null : Number(remainingHeader),
     rateResetAt: resetHeader === null ? null : Number(resetHeader) * 1000,
   }
-}
-
-type RepoRestResult = { response: Response; body: any; rateLimit: { remaining: number | null; resetAt: number | null } }
-
-function rateLimitFrom(response: Response) {
-  const remaining = response.headers.get('x-ratelimit-remaining')
-  const reset = response.headers.get('x-ratelimit-reset')
-  return { remaining: remaining === null ? null : Number(remaining), resetAt: reset === null ? null : Number(reset) * 1000 }
-}
-
-async function repositoryRequest(path: string, init: RequestInit = {}): Promise<RepoRestResult> {
-  const token = getToken()
-  if (!token) throw new Error('Your GitHub session is missing. Sign in again.')
-  const response = await fetch(`https://api.github.com${path}`, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28',
-      ...(init.headers || {}),
-    },
-  })
-  const rateLimit = rateLimitFrom(response)
-  if (response.status === 401) { clearToken(); throw new Error('Your GitHub session expired. Sign in again.') }
-  const body = await response.json().catch(() => null)
-  if (!response.ok && response.status !== 404) {
-    if (response.status === 403 || response.status === 429) throw new Error(`GitHub rate limit or access restriction: ${body?.message || response.status}`)
-    throw new Error(body?.message || `GitHub returned an error (${response.status}).`)
-  }
-  return { response, body, rateLimit }
-}
-
-function repositoryPath(repo: Repository) {
-  return repo.nameWithOwner.split('/').map(encodeURIComponent).join('/')
-}
-
-function decodeBase64(encoded: string) {
-  const binary = atob(encoded.replace(/\s/g, ''))
-  return new TextDecoder().decode(Uint8Array.from(binary, char => char.charCodeAt(0)))
-}
-
-const SKIP_TREE_PATH = /(^|\/)(node_modules|vendor|dist|build|coverage|\.git|\.next|target)(\/|$)/i
-const SKIP_TREE_FILE = /(^|\/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|Cargo\.lock|Gemfile\.lock|poetry\.lock)$/i
-
-function summarizeTree(entries: Array<{ path?: string; type?: string }>, wasTruncated: boolean) {
-  const paths = entries
-    .filter(entry => entry.type === 'blob' && entry.path && !SKIP_TREE_PATH.test(entry.path) && !SKIP_TREE_FILE.test(entry.path))
-    .map(entry => entry.path!)
-    .sort((a, b) => {
-      const score = (path: string) => path.includes('/') ? 0 : /^(package\.json|pyproject\.toml|Cargo\.toml|go\.mod|pom\.xml|composer\.json|Makefile|Dockerfile)$/i.test(path) ? 2 : 1
-      return score(b) - score(a) || a.localeCompare(b)
-    })
-  const selected: string[] = []
-  let chars = 0
-  for (const path of paths) {
-    const shortPath = path.slice(0, 180)
-    if (selected.length >= 120 || chars + shortPath.length + 1 > 9000) break
-    selected.push(shortPath); chars += shortPath.length + 1
-  }
-  const limited = wasTruncated || selected.length < paths.length
-  return `Repository file paths${limited ? ' (representative subset; tree truncated to fit a small prompt)' : ''}:\n${selected.join('\n') || '(No file paths returned)'}`
-}
-
-export async function fetchSummaryContext(repo: Repository): Promise<SummaryContextResult> {
-  const basePath = repositoryPath(repo)
-  const readme = await repositoryRequest(`/repos/${basePath}/readme`)
-  if (readme.response.ok && typeof readme.body?.content === 'string') {
-    const content = decodeBase64(readme.body.content).slice(0, 10_000)
-    return { context: { source: 'README', content }, rateLimit: readme.rateLimit }
-  }
-
-  const details = await repositoryRequest(`/repos/${basePath}`)
-  const branch = String(details.body?.default_branch || 'HEAD')
-  const tree = await repositoryRequest(`/repos/${basePath}/git/trees/${encodeURIComponent(branch)}?recursive=1`)
-  if (!tree.response.ok) throw new Error(tree.body?.message || 'Could not read this repository’s file tree.')
-  return {
-    context: { source: 'file tree', content: summarizeTree(tree.body?.tree || [], Boolean(tree.body?.truncated)) },
-    rateLimit: tree.rateLimit,
-  }
-}
-
-export async function patchRepositoryDescription(repo: Repository, description: string) {
-  const { response } = await repositoryRequest(`/repos/${repositoryPath(repo)}`, {
-    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ description }),
-  })
-  if (!response.ok) throw new Error('GitHub did not update the repository description.')
 }
