@@ -1,7 +1,12 @@
 import type { Repository, Viewer } from '../../domain/repositories/types'
 
-async function githubFetch(url: string, init: RequestInit = {}) {
+export type GitHubRateLimit = { remaining: number | null; resetAt: number | null }
+
+async function githubFetch(url: string, init: RequestInit = {}, observeRateLimit?: (snapshot: GitHubRateLimit) => void) {
   const response = await fetch(url, init)
+  const remaining = response.headers.get('x-ratelimit-remaining')
+  const reset = response.headers.get('x-ratelimit-reset')
+  observeRateLimit?.({ remaining: remaining === null ? null : Number(remaining), resetAt: reset === null ? null : Number(reset) * 1000 })
   if (response.status === 403 || response.status === 429) {
     const reset = response.headers.get('x-ratelimit-reset')
     const when = reset ? ` Try again after ${new Date(Number(reset) * 1000).toLocaleTimeString()}.` : ' Please wait a moment and try again.'
@@ -31,10 +36,10 @@ const REPO_QUERY = `query RepoManagerRepositories {
   }
 }`
 
-export async function fetchRepositories(): Promise<{ repos: Repository[]; viewer: Viewer; rateRemaining: number | null; rateResetAt: number | null }> {
+export async function fetchRepositories(observeRateLimit?: (snapshot: GitHubRateLimit) => void): Promise<{ repos: Repository[]; viewer: Viewer; rateRemaining: number | null; rateResetAt: number | null }> {
   const response = await githubFetch('/api/github/graphql', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: REPO_QUERY }),
-  })
+  }, observeRateLimit)
   const body = await response.json()
   if (body.errors?.length) {
     const message = body.errors[0].message as string

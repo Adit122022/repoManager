@@ -20,15 +20,28 @@ export async function githubProxy(request: Request) {
   if (segments.some(segment => segment === '.' || segment === '..' || segment.includes('/'))) {
     return Response.json({ message: 'Invalid GitHub API path.' }, { status: 400 })
   }
-  const allowedReadme = segments.length === 4 && segments[0] === 'repos' && segments[3] === 'readme'
-  const allowedDeployments = segments.length === 4 && segments[0] === 'repos' && segments[3] === 'deployments'
-  if (path !== '/graphql' && !allowedReadme && !allowedDeployments) {
+  const repositoryPath = segments.length >= 3 && segments[0] === 'repos'
+  const repoRead = repositoryPath && segments.length === 4 && ['readme', 'deployments'].includes(segments[3]) && request.method === 'GET'
+  const topicsWrite = repositoryPath && segments.length === 4 && segments[3] === 'topics' && request.method === 'PUT'
+  const archiveWrite = repositoryPath && segments.length === 3 && request.method === 'PATCH'
+  const deleteWrite = repositoryPath && segments.length === 3 && request.method === 'DELETE'
+  const graphqlRead = path === '/graphql' && request.method === 'POST'
+  if (!repoRead && !topicsWrite && !archiveWrite && !deleteWrite && !graphqlRead) {
     return Response.json({ message: 'This GitHub API route is not available.' }, { status: 404 })
   }
-  if (request.method !== 'GET' && !(request.method === 'POST' && path === '/graphql')) {
-    return Response.json({ message: 'Only read requests are allowed.' }, { status: 405 })
+  if (topicsWrite || archiveWrite) {
+    const payload = await request.clone().json().catch(() => null)
+    if (topicsWrite) {
+      const validTopic = (name: unknown) => typeof name === 'string' && /^[a-z0-9][a-z0-9-]{0,49}$/.test(name)
+      if (!Array.isArray(payload?.names) || payload.names.length > 20 || !payload.names.every(validTopic)) {
+        return Response.json({ message: 'Topic updates must contain up to 20 valid lowercase topic names.' }, { status: 400 })
+      }
+    }
+    if (archiveWrite && payload?.archived !== true) {
+      return Response.json({ message: 'Only archiving repositories is allowed.' }, { status: 400 })
+    }
   }
-  if (path === '/graphql' && request.method === 'POST') {
+  if (graphqlRead) {
     const payload = await request.clone().json().catch(() => null)
     if (typeof payload?.query !== 'string' || /\bmutation\b/i.test(payload.query)) {
       return Response.json({ message: 'Only GraphQL queries are allowed.' }, { status: 405 })

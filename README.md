@@ -1,25 +1,52 @@
 # Repo Manager
 
-A React + Vite dashboard for browsing and analyzing GitHub repositories. GitHub OAuth runs through Better Auth on same-origin serverless routes, and GitHub API requests are proxied by Vercel Functions so OAuth credentials stay out of the browser bundle. Repository data lives in Zustand; analysis results are cached in localStorage for 24 hours.
+Repo Manager is a React, Vite, and Tailwind app for reviewing GitHub repositories, analyzing their health, and managing selected repositories. Better Auth handles sign-in; Vercel Functions keep GitHub OAuth credentials and access tokens on the server. Repository analysis and triage decisions stay in the browser.
+
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FAdit122022%2Fempty6)
+
+## GitHub OAuth setup
+
+1. In GitHub, open **Settings → Developer settings → OAuth Apps → New OAuth App**.
+2. Set the homepage URL to `http://localhost:5173` for development (or your production origin).
+3. Set the Authorization callback URL to `http://localhost:5173/api/auth/callback/github` for local development. Use a separate OAuth App for production, with `<production-origin>/api/auth/callback/github` as its callback.
+4. Copy the generated client ID and client secret into the server environment variables below.
+
+Repo Manager requests `repo` to read repositories and support the app's explicitly confirmed topic, archive, and delete actions. It also requests `user:email` so Better Auth can retrieve the email associated with the GitHub identity, including a private email address. The GitHub access token is used by the server proxy and is not saved in browser storage.
 
 ## Run locally
 
-1. Create a GitHub OAuth App. Set its callback URL to `http://localhost:5173/api/auth/callback/github`.
-2. Copy `.env.example` to `.env.local`. Add the GitHub client ID and secret, a private random `BETTER_AUTH_SECRET` (at least 32 bytes), and keep `BETTER_AUTH_URL=http://localhost:5173`. Do not prefix secrets with `VITE_`.
-3. Run `npm install` and `npm run dev`. The Vite development middleware serves the auth and GitHub proxy routes locally.
+1. Copy `.env.example` to `.env.local`.
+2. Set `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `BETTER_AUTH_SECRET` (a private random value of at least 32 bytes), and `BETTER_AUTH_URL=http://localhost:5173`. Do not add a `VITE_` prefix to secrets.
+3. Run `npm install`, then `npm run dev`.
 
-Better Auth requests the `repo` and `user:email` scopes. It uses stateless secure cookies; no database is configured. The GitHub access token is read by the server-side proxy and is never stored in browser localStorage or sessionStorage.
+Vite serves the Better Auth and GitHub proxy handlers locally. Optional `BETTER_AUTH_API_KEY` connects the Better Auth Infrastructure dashboard; leave it empty if you do not use that service.
 
 ## Deploy to Vercel
 
-Set `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `BETTER_AUTH_SECRET`, and `BETTER_AUTH_URL` as Vercel environment variables. Set `BETTER_AUTH_URL` to the production origin and register `<production-origin>/api/auth/callback/github` as the GitHub OAuth callback URL. To connect the Better Auth Infrastructure dashboard, also set `BETTER_AUTH_API_KEY` (server-side only; never use a `VITE_` prefix). The dashboard plugin loads only when this key exists, so local auth can still run without it. Redeploy after changing Vercel environment variables. The `api/` directory provides the Vercel Functions; `vercel.json` routes SPA paths to the app.
+Use the button above or import the repository into Vercel. In **Project Settings → Environment Variables**, add:
 
-For Infrastructure dashboard testing against a local server, expose Vite's port with `npx ngrok http 5173` (or `cloudflared tunnel --url http://localhost:5173`) and use the resulting HTTPS URL as the dashboard Base URL with Base Path `/api/auth`. Update `BETTER_AUTH_URL` and the GitHub OAuth callback URL to that tunnel origin while testing OAuth through the tunnel. A hosted dashboard cannot connect directly to `localhost`.
+| Variable | Value |
+| --- | --- |
+| `GITHUB_CLIENT_ID` | GitHub OAuth App client ID |
+| `GITHUB_CLIENT_SECRET` | GitHub OAuth App client secret |
+| `BETTER_AUTH_SECRET` | Private random secret, at least 32 bytes |
+| `BETTER_AUTH_URL` | Production origin, such as `https://your-app.vercel.app` |
+| `BETTER_AUTH_API_KEY` | Optional Better Auth Infrastructure server key |
 
-## Architecture
+Register `<production-origin>/api/auth/callback/github` in the production GitHub OAuth App, then redeploy after setting the environment variables. The `api/` directory contains the Vercel Functions and `vercel.json` routes application paths to the SPA.
 
-The four client layers are `src/domain` (models and policies), `src/application` (use cases and ports), `src/infrastructure` (Better Auth client, GitHub API adapter, and browser storage), and `src/presentation` (React, Zustand, and styles). Server handlers live in `api/`; `src/bootstrap.ts` assembles the client adapters.
+## Features
 
-## Data returned
+- Sortable and searchable repository table with language, license, README, dormancy, and deployment analysis.
+- Repository topic updates, confirmed archiving, and per-repository deletion with exact-name confirmation.
+- Session-only action log and JSON report export, including analysis flags and recorded actions.
+- A low GitHub API quota banner with the estimated reset time; repository analysis pauses below 100 remaining requests.
+- Analysis results cached in `localStorage` for 24 hours and triage decisions persisted per GitHub login.
 
-One GitHub GraphQL request fetches the viewer and up to 100 most recently updated repositories, including description, primary language, topics, license, README presence, homepage, last update, stars, and archived status. The table supports sorting, text search, active/archive filters, language filtering, and analysis badges for naming patterns, dormancy, license, README quality, and deployments. README and deployment REST calls run with a five-request concurrency cap. Per-repository analysis entries expire after 24 hours. Repositories matching the throwaway naming pattern are excluded from deployment checks. The dashboard displays GitHub's remaining API quota and pauses analysis when it falls below 100. The GitHub proxy permits only the repository reads and GraphQL queries used by the app.
+## Project structure
+
+The client uses four layers: `src/domain` for models and policies, `src/application` for use cases and ports, `src/infrastructure` for auth/API/storage adapters, and `src/presentation` for React, Zustand, and styles. Server handlers live in `api/` and `server/`.
+
+## Development checks
+
+Run `npm test` for the automated unit and UI suite. Run `npm run build` to type-check and create the production Vite bundle.
