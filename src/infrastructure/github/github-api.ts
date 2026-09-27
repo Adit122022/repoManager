@@ -22,7 +22,7 @@ async function githubFetch(url: string, init: RequestInit = {}, observeRateLimit
 const REPO_QUERY = `query RepoManagerRepositories {
   viewer { login name avatarUrl }
   viewerRepositories: viewer {
-    repositories(first: 100, orderBy: { field: UPDATED_AT, direction: DESC }, affiliations: [OWNER, COLLABORATOR, ORGANIZATION_MEMBER]) {
+    repositories(first: 100, orderBy: { field: UPDATED_AT, direction: DESC }, affiliations: [OWNER]) {
       nodes {
         id name nameWithOwner description url homepageUrl updatedAt stargazerCount isArchived isPrivate
         primaryLanguage { name color }
@@ -50,7 +50,7 @@ export async function fetchRepositories(observeRateLimit?: (snapshot: GitHubRate
   const remainingHeader = response.headers.get('x-ratelimit-remaining')
   const resetHeader = response.headers.get('x-ratelimit-reset')
   return {
-    repos: viewerRepositories.repositories.nodes,
+    repos: Array.from(new Map((viewerRepositories.repositories.nodes as Repository[]).map(repo => [repo.id, repo])).values()),
     viewer,
     rateRemaining: remainingHeader === null ? null : Number(remainingHeader),
     rateResetAt: resetHeader === null ? null : Number(resetHeader) * 1000,

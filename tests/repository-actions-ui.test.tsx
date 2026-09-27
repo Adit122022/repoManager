@@ -12,6 +12,8 @@ const { services, authState } = vi.hoisted(() => ({
   },
   authState: { session: { data: { user: { id: 'test-user' } }, isPending: false } as { data: { user: { id: string } } | null; isPending: boolean } },
 }))
+let mockRateRemaining = 500
+let mockRateResetAt: number | null = null
 
 vi.mock('../src/bootstrap', () => ({ appServices: services }))
 vi.mock('../src/infrastructure/auth/auth-client', () => ({
@@ -31,6 +33,8 @@ function makeRepo(name: string): Repository {
 }
 
 async function renderApp(repos: Repository[], decisions: Record<string, string> = {}, rateRemaining = 500, rateResetAt: number | null = null) {
+  mockRateRemaining = rateRemaining
+  mockRateResetAt = rateResetAt
   localStorage.setItem('repo-manager:triage:octo', JSON.stringify(decisions))
   services.fetchRepositories.mockImplementation(async (observeRateLimit?: (snapshot: { remaining: number; resetAt: number | null }) => void) => {
     observeRateLimit?.({ remaining: rateRemaining, resetAt: rateResetAt })
@@ -46,7 +50,11 @@ describe('repository write-action UI', () => {
     localStorage.clear()
     useRepoStore.getState().clear()
     authState.session = { data: { user: { id: 'test-user' } }, isPending: false }
-    services.analyzeRepositories.mockResolvedValue(undefined)
+    services.analyzeRepositories.mockImplementation(async (repos, callbacks) => {
+      callbacks.onResult(Object.fromEntries(repos.map(repo => [repo.id, { dummyName: false, dormant: false, hasLicense: false, readme: 'missing', deployment: 'none' }])) as never)
+      callbacks.onProgress({ done: 1, total: 1, running: false, paused: false, rateRemaining: mockRateRemaining, rateResetAt: mockRateResetAt, error: null })
+      return undefined
+    })
     services.addTopic.mockResolvedValue(undefined)
     services.archiveRepository.mockResolvedValue(undefined)
     services.deleteRepository.mockResolvedValue(undefined)
@@ -68,6 +76,11 @@ describe('repository write-action UI', () => {
     const banner = screen.getByRole('status')
     expect(banner.textContent).toContain('42 requests remaining')
     expect(banner.textContent).toContain(new Date(resetAt).toLocaleTimeString())
+  })
+
+  it('hides the low-quota banner at the threshold and above', async () => {
+    await renderApp([makeRepo('quota-boundary')], {}, 100, Date.now() + 60_000)
+    expect(screen.queryByRole('status')).toBeNull()
   })
 
   it('exports all loaded repos, analysis fields, and successful session actions as JSON', async () => {
@@ -93,7 +106,7 @@ describe('repository write-action UI', () => {
     })
     const report = JSON.parse(content)
     expect(report.repositories).toHaveLength(1)
-    expect(report.repositories[0].analysis).toBeDefined()
+    expect(report.repositories[0].analysis).toMatchObject({ dummyName: false, dormant: false, hasLicense: false, readme: 'missing', deployment: 'none' })
     expect(report.actions[0]).toMatchObject({ repoName: 'octo/report-me', action: 'topic', detail: 'Added topic “learning-project”' })
   })
 
