@@ -83,6 +83,20 @@ describe('repository write-action UI', () => {
     expect(screen.queryByRole('status')).toBeNull()
   })
 
+  it('renders the compact repository view with the repository details and triage controls', async () => {
+    const repo = { ...makeRepo('compact-view'), description: 'A compact layout test', homepageUrl: 'https://example.dev', stargazerCount: 7, isArchived: true, primaryLanguage: { name: 'TypeScript', color: '#3178c6' }, licenseInfo: { name: 'MIT License', spdxId: 'MIT' } }
+    await renderApp([repo], { [repo.id]: 'keep' })
+    expect(screen.getByLabelText('Sort repositories')).toBeTruthy()
+    const card = document.querySelector('.repo-mobile-card')
+    expect(card?.textContent).toContain('compact-view')
+    expect(card?.textContent).toContain('A compact layout test')
+    expect(card?.textContent).toContain('TypeScript')
+    expect(card?.textContent).toContain('example.dev')
+    expect(card?.textContent).toContain('7')
+    expect(card?.textContent).toContain('Archived')
+    expect(within(card as HTMLElement).getByLabelText('Triage decision for octo/compact-view (compact view)')).toBeTruthy()
+  })
+
   it('exports all loaded repos, analysis fields, and successful session actions as JSON', async () => {
     const repo = makeRepo('report-me')
     let reportBlob: Blob | null = null
