@@ -12,7 +12,9 @@ Better Auth requests the `repo` and `user:email` scopes. It uses stateless secur
 
 ## Deploy to Vercel
 
-Set `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `BETTER_AUTH_SECRET`, and `BETTER_AUTH_URL` as Vercel environment variables. Set `BETTER_AUTH_URL` to the production origin and register `<production-origin>/api/auth/callback/github` as the GitHub OAuth callback URL. Deploy. The `api/` directory provides the Vercel Functions; `vercel.json` routes SPA paths to the app.
+Set `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `BETTER_AUTH_SECRET`, and `BETTER_AUTH_URL` as Vercel environment variables. Set `BETTER_AUTH_URL` to the production origin and register `<production-origin>/api/auth/callback/github` as the GitHub OAuth callback URL. To connect the Better Auth Infrastructure dashboard, also set `BETTER_AUTH_API_KEY` (server-side only; never use a `VITE_` prefix). The dashboard plugin loads only when this key exists, so local auth can still run without it. Redeploy after changing Vercel environment variables. The `api/` directory provides the Vercel Functions; `vercel.json` routes SPA paths to the app.
+
+For Infrastructure dashboard testing against a local server, expose Vite's port with `npx ngrok http 5173` (or `cloudflared tunnel --url http://localhost:5173`) and use the resulting HTTPS URL as the dashboard Base URL with Base Path `/api/auth`. Update `BETTER_AUTH_URL` and the GitHub OAuth callback URL to that tunnel origin while testing OAuth through the tunnel. A hosted dashboard cannot connect directly to `localhost`.
 
 ## Architecture
 

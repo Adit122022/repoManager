@@ -42,5 +42,5 @@ function localApiPlugin(): Plugin {
 
 export default defineConfig(({ mode }) => {
   Object.assign(process.env, loadEnv(mode, process.cwd(), ''))
-  return { plugins: [react(), localApiPlugin()], optimizeDeps: { noDiscovery: true, include: [] } }
+  return { plugins: [react(), localApiPlugin()] }
 })
